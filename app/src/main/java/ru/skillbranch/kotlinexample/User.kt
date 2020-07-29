@@ -1,19 +1,20 @@
 package ru.skillbranch.kotlinexample
 
 import androidx.annotation.VisibleForTesting
-import java.lang.IllegalArgumentException
-import java.lang.StringBuilder
 import java.math.BigInteger
 import java.security.MessageDigest
 import java.security.SecureRandom
 
 class User private constructor(
-    val firstName: String,
-    val lastName: String?,
+    private val firstName: String,
+    private val lastName: String?,
     email: String? = null,
     rawPhone: String? = null,
     meta: Map<String, Any>? = null
 ) {
+
+    val userInfo: String
+
     private val fullName: String
         get() = listOfNotNull(firstName, lastName)
             .joinToString(" ")
@@ -26,105 +27,93 @@ class User private constructor(
 
     var phone: String? = null
         set(value) {
-            field = value?.replace("[^+\\d]".toRegex(), "")
+            field=value?.replace("[^+\\d]".toRegex(), "")
         }
+
     private var _login: String? = null
-    var login: String
+
+    public var login: String
         set(value) {
-            _login = value.toLowerCase()
+            _login = value?.toLowerCase()
         }
-        get() = login!!
+        get() = _login!!
 
-    private var salt: String? = null
+    private val salt: String by lazy {
+        ByteArray(16).also { SecureRandom().nextBytes(it) }.toString()
 
-    val userInfo: String
-
+    }
     private lateinit var passwordHash: String
 
     @VisibleForTesting(otherwise = VisibleForTesting.NONE)
     var accessCode: String? = null
 
+    //    for email
+    constructor(
+        firstName: String,
+        lastName: String?,
+        email: String?,
+        password: String
+    ) : this(firstName, lastName, email = email, meta = mapOf("auth" to "password")) {
+        println("Secondary mail constructors")
+        passwordHash = encrypt(password)
+    }
+
+    //    for phone
+    constructor(
+        firstName: String,
+        lastName: String?,
+        rawPhone: String
+    ) : this(firstName, lastName, rawPhone = rawPhone, meta = mapOf("auth" to "sms")) {
+        println("Secondary phone constructors")
+        val code = generateAccessCode()
+        passwordHash = encrypt(code)
+        accessCode = code;
+        sendAccessCodeToUser(phone!!, code)
+    }
+
     init {
+        println("First init block, primary constructor  was called")
+        check(!firstName.isBlank()) { "FirstName must be not blank" }
+        check(email.isNullOrBlank() || rawPhone.isNullOrBlank()) { "email or phone must be not blank" }
         phone = rawPhone
-        login = email ?: phone!!
+        login = phone ?: email!!
         userInfo = """
-            firstname: $firstName
+            firstName: $firstName
             lastName: $lastName
             login: $login
             fullName: $fullName
             initials: $initials
             email: $email
             phone: $phone
-            meta: $meta 
+            meta: $meta
         """.trimIndent()
-        updateAccessCode().also {
-            sendAccessCodeToUser(rawPhone ?: return@also, it)
+    }
+
+    fun checkPassword(pass: String) = encrypt(pass) == passwordHash
+
+    fun changePassword(oldPass: String, newPass: String) {
+        if (checkPassword(oldPass)) {
+            passwordHash = encrypt(newPass)
+        } else {
+            throw IllegalArgumentException("The entered password does not match the current password")
         }
     }
 
-    //for email
-    constructor(
-        firstName: String,
-        lastName: String?,
-        email: String?,
-        password: String,
-        meta: Map<String, Any>?,
-        workAround: Int = 0
-    ) : this(firstName, lastName, email = email, meta = meta ?: mapOf("auth" to "password")) {
-        println("Secondary mail constructor")
-        passwordHash = encrypt(password)
-    }
-
-
-    //for phone
-    constructor(
-        firstName: String,
-        lastName: String?,
-        email: String?,
-        rawPhone: String?,
-        salt: String,
-        passwordHash: String,
-        meta: Map<String, Any>?
-    ) : this(firstName, lastName, email = email, rawPhone = rawPhone, meta = meta) {
-        println("Secondary phone constructor")
-        this.salt = salt
-        this.passwordHash = passwordHash
-    }
+    private fun encrypt(password: String): String = salt.plus(password).md5()
 
     private fun generateAccessCode(): String {
-        val possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        val possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890"
         return StringBuilder().apply {
             repeat(6) {
-                (possible.indices).random().also {
-                    append(possible[it])
+                (possible.indices).random().also { index ->
+                    append(possible[index])
                 }
             }
         }.toString()
     }
 
-    fun updateAccessCode(): String {
-        generateAccessCode().also {
-            passwordHash = encrypt(it)
-            accessCode = it
-            return it
-        }
-    }
-
-    fun checkPassword(pass: String): Boolean {
-        return encrypt(pass) == passwordHash
-    }
-
-    private fun encrypt(password: String): String {
-        return if (salt == null)
-            ByteArray(16)
-                .also { SecureRandom().nextBytes(it) }.toString()
-                .also {
-                    salt = it
-                }.run {
-                    this.plus(password).md5()
-                }
-        else
-            salt.plus(password).md5()
+    private fun sendAccessCodeToUser(phone: String, code: String) {
+        println("... sending access code: $code on $phone")
     }
 
     private fun String.md5(): String {
@@ -134,59 +123,45 @@ class User private constructor(
         return hexString.padStart(32, '0')
     }
 
-    private fun sendAccessCodeToUser(phone:String, code:String) {
-        println(".... sending access code: $code on $phone")
+    fun updateAccessCode(user:User):User{
+        user.accessCode=generateAccessCode()
+        user.passwordHash=encrypt(accessCode!!)
+        return user
     }
 
-    companion object{
+    companion object Factory {
         fun makeUser(
-            fullName:String,
-            email:String? = null,
+            fullName: String,
+            email: String? = null,
             password: String? = null,
-            phone:String? = null,
-            salt: String? = null,
-            passwordHash: String? = null,
-            meta: Map<String,Any>? = null
-        ):User{
-            val (firstName,lastName) = fullName.fullNameToPair()
-
+            phone: String? = null
+        ): User {
+            val (firstName, lastName) = fullName.fullNameToPair()
             return when {
-                !email.isNullOrBlank() && !salt.isNullOrBlank() && !passwordHash.isNullOrBlank() -> {
-                    User(
-                        firstName = firstName,
-                        lastName = lastName,
-                        rawPhone = phone,
-                        email = email,
-                        passwordHash = passwordHash,
-                        salt = salt,
-                        meta = meta
-                    )
-                }
-                !phone.isNullOrBlank() -> User(firstName, lastName, rawPhone = phone, meta = meta ?: mapOf("auth" to "sms"))
+                !phone.isNullOrBlank() ->User(firstName, lastName, phone)
                 !email.isNullOrBlank() && !password.isNullOrBlank() -> User(
-                    firstName = firstName,
-                    lastName = lastName,
-                    email = email,
-                    password = password,
-                    meta = meta
+                    firstName,
+                    lastName,
+                    email,
+                    password
                 )
-                else -> throw IllegalArgumentException("Email or phone must not be null or blank")
+                else -> throw IllegalArgumentException("Email or phone must be not null or blank")
             }
-
         }
 
-        private fun String.fullNameToPair(): Pair<String, String?>{
+        private fun String.fullNameToPair(): Pair<String, String?> {
             return this.split(" ")
                 .filter { it.isNotBlank() }
                 .run {
-                    when(size){
+                    when (size) {
                         1 -> first() to null
                         2 -> first() to last()
-                        else -> throw IllegalArgumentException("FullName must contain first name and last name, current result is $this")
+                        else -> throw IllegalArgumentException(
+                            "FullName must contain only first name" +
+                                    " and last name, current split result $this"
+                        )
                     }
                 }
         }
-
     }
-
 }

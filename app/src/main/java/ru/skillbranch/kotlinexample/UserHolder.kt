@@ -46,7 +46,7 @@ object UserHolder {
     fun requestAccessCode(login: String): Unit {
         val key = if (login.startsWith("+")) login.replace("""[^+\d]""".toRegex(), "") else login
         map[key]?.also {
-            it.updateAccessCode()
+            it.updateAccessCode(it)
         }.let { map[key] = it ?: return }
     }
 
