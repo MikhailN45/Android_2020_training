@@ -24,6 +24,7 @@ class User private constructor(
             .map { it.first().toUpperCase() }
             .joinToString(" ")
 
+
     var phone: String? = null
         set(value) {
             field = value?.replace("[^+\\d]".toRegex(), "")
