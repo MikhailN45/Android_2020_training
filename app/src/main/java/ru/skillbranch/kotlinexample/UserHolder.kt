@@ -1,5 +1,9 @@
 package ru.skillbranch.kotlinexample
 
+import androidx.annotation.VisibleForTesting
+import java.lang.IllegalArgumentException
+import kotlin.math.log
+
 object UserHolder {
     private val map = mutableMapOf<String, User>()
 
@@ -8,14 +12,47 @@ object UserHolder {
         email: String,
         password: String?
     ): User {
-        return User.makeUser(fullName, email = email, password = password)
-            .also { user -> map[user.login] = user }
+        return User.makeUser(fullName, email, password)
+            .also {
+                if (map[it.login] != null)
+                    throw IllegalArgumentException("A user with this email already exists")
+                else
+                    map[it.login] = it
+            }
+    }
+
+    fun registerUserByPhone(fullName: String, rawPhone: String): User {
+        val phone = rawPhone.replace("""[^+\d]""".toRegex(), "")
+        when {
+            phone.length != 12 -> throw IllegalArgumentException("Enter a valid phone number, starting with a + and containing 11 digits")
+            map.filter { it.value.phone == phone }
+                .isNotEmpty() -> throw IllegalArgumentException("A user with this phone already exists")
+        }
+        return User.makeUser(fullName, phone = rawPhone).also {
+            map[phone] = it
+        }
     }
 
     fun loginUser(login: String, password: String): String? {
-        return map[login.trim()]?.run {
-            if (checkPassword(password)) this.userInfo
-            else null
+        val key = if (login.startsWith("+")) login.replace("""[^+\d]""".toRegex(), "") else login
+        map[key].also {
+            return if (it == null || !it.checkPassword(password))
+                null
+            else
+                it.userInfo
         }
+    }
+
+    fun requestAccessCode(login: String): Unit {
+        val key = if (login.startsWith("+")) login.replace("""[^+\d]""".toRegex(), "") else login
+        map[key]?.also {
+            it.updateAccessCode()
+        }.let { map[key] = it ?: return }
+    }
+
+
+    @VisibleForTesting(otherwise = VisibleForTesting.NONE)
+    fun clearHolder() {
+        map.clear()
     }
 }
