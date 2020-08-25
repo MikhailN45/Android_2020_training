@@ -4,7 +4,6 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.ImageView
 import android.widget.Toolbar
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.ViewModelProviders
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.android.synthetic.main.activity_root.*
@@ -63,8 +62,8 @@ class RootActivity : AppCompatActivity() {
     }
 
     private fun setupSubMenu() {
-        btn_text_up.setOnClickListener { viewModel.handleTextUp() }
-        btn_text_down.setOnClickListener { viewModel.handleTextDown() }
+        btn_text_up.setOnClickListener { viewModel.handleUpText() }
+        btn_text_down.setOnClickListener { viewModel.handleDownText() }
         switch_mode.setOnClickListener { viewModel.handleNightMode() }
     }
 
